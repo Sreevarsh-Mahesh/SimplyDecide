@@ -4,6 +4,7 @@ import main.controller.AIClient;
 import main.model.Choice;
 import main.model.DBManager;
 import main.model.ProCon;
+import main.model.Decision;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -127,6 +128,7 @@ public class MainWindow extends JFrame {
     private JPanel choicesPanel;
     private JTextField newChoiceField;
     private List<Choice> selectedChoices = new ArrayList<>();
+    private Decision currentDecision; // Track the current decision
 
     public MainWindow() {
         this.dbManager = new DBManager();
@@ -138,7 +140,8 @@ public class MainWindow extends JFrame {
         setLocationRelativeTo(null);
         
         initializeUI();
-        loadChoices();
+        // Do not load any choices or decision by default
+        // User must select from history or create new
     }
 
     private void initializeUI() {
@@ -149,10 +152,12 @@ public class MainWindow extends JFrame {
         JButton newDecisionBtn = new JButton("New Decision");
         JButton compareBtn = new JButton("Compare Selected");
         JButton deleteSelectedBtn = new JButton("Delete Selected");
+        JButton historyBtn = new JButton("History");
         
         toolbar.add(newDecisionBtn);
         toolbar.add(compareBtn);
         toolbar.add(deleteSelectedBtn);
+        toolbar.add(historyBtn);
 
         // New choice input panel
         JPanel inputPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
@@ -166,7 +171,7 @@ public class MainWindow extends JFrame {
         inputPanel.add(newChoiceField);
         inputPanel.add(addChoiceBtn);
 
-        // Choices panel with grid layout
+        // Choices panel with grid layout (2 columns)
         choicesPanel = new JPanel(new GridLayout(0, 2, 20, 20));
         choicesPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
         
@@ -190,10 +195,11 @@ public class MainWindow extends JFrame {
 
         // Event handlers
         addChoiceBtn.addActionListener(e -> addNewChoice());
-        newDecisionBtn.addActionListener(e -> clearChoices());
+        newDecisionBtn.addActionListener(e -> startNewDecision());
         compareBtn.addActionListener(e -> compareSelectedChoices());
         deleteSelectedBtn.addActionListener(e -> deleteSelectedChoices());
         newChoiceField.addActionListener(e -> addNewChoice());
+        historyBtn.addActionListener(e -> openDecisionHistory());
 
         // Add component listener to handle resize
         addComponentListener(new java.awt.event.ComponentAdapter() {
@@ -218,20 +224,59 @@ public class MainWindow extends JFrame {
         }
     }
 
+    private void startNewDecision() {
+        String title = JOptionPane.showInputDialog(this, "Enter a name for your new decision:", "New Decision", JOptionPane.PLAIN_MESSAGE);
+        if (title != null && !title.trim().isEmpty()) {
+            Decision decision = new Decision(title.trim());
+            decision = dbManager.createDecision(decision);
+            if (decision != null && decision.getId() > 0) {
+                currentDecision = decision;
+                clearChoices();
+                setTitle("DecisionWise - " + decision.getTitle());
+            }
+        }
+    }
+
+    private void openDecisionHistory() {
+        DecisionHistoryDialog dialog = new DecisionHistoryDialog(this, dbManager);
+        dialog.setVisible(true);
+        Decision selected = dialog.getSelectedDecision();
+        if (selected != null) {
+            currentDecision = selected;
+            loadChoicesForDecision(selected.getId());
+            setTitle("DecisionWise - " + selected.getTitle());
+        }
+    }
+
+    private void loadChoicesForDecision(int decisionId) {
+        choicesPanel.removeAll();
+        List<Choice> choices = dbManager.getChoicesForDecision(decisionId);
+        if (choices.isEmpty()) {
+            // Show an empty page (no cards, no message)
+            choicesPanel.revalidate();
+            choicesPanel.repaint();
+            updateScrollPanePolicy();
+            return;
+        }
+        choices.forEach(this::addChoiceCard);
+        updateScrollPanePolicy();
+    }
+
     private void addNewChoice() {
+        if (currentDecision == null) {
+            JOptionPane.showMessageDialog(this, "Please start a new decision first.", "No Decision Selected", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         String title = newChoiceField.getText().trim();
         if (!title.isEmpty()) {
-            Choice choice = new Choice(title);
-            
+            Choice choice = new Choice(title, currentDecision.getId());
             // Generate pros and cons using AI
             List<ProCon> prosAndCons = aiClient.generateProsAndCons(title);
             for (ProCon proCon : prosAndCons) {
                 choice.addProCon(proCon);
             }
-            
             // Save to database
             choice = dbManager.saveChoice(choice);
-            
             if (choice != null && choice.getId() > 0) {
                 addChoiceCard(choice);
                 newChoiceField.setText("");
@@ -335,12 +380,8 @@ public class MainWindow extends JFrame {
                 dbManager.deleteChoice(choice.getId());
             }
             
-            // Refresh the UI
-            choicesPanel.removeAll();
-            loadChoices();
-            choicesPanel.revalidate();
-            choicesPanel.repaint();
-            updateScrollPanePolicy();
+            // Refresh the UI for the current decision only
+            loadChoicesForDecision(currentDecision != null ? currentDecision.getId() : -1);
         }
     }
 
