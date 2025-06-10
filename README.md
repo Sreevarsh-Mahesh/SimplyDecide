@@ -1,4 +1,4 @@
-# DecisionWise
+# SimplyDecide
 
 A Java-based decision-making application that helps users compare choices by analyzing pros and cons. The application uses AI to generate initial pros and cons for common decisions.
 
